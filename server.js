@@ -1,8 +1,7 @@
-const express = require('express');
-const fetch = require('node-fetch');
-require('dotenv').config();
-const express = require('express');
-const fetch = require('node-fetch');  // <-- This is essential
+import express from 'express';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -37,16 +36,21 @@ app.get('/api/station', async (req, res) => {
         headers: { token: NOAA_TOKEN },
       });
 
+      if (!response.ok) {
+        console.error(`NOAA API error for ${date}: ${response.status} ${response.statusText}`);
+        continue;
+      }
+
       const data = await response.json();
 
       if (!data.results) continue;
 
       data.results.forEach(r => {
-        const year = new Date(r.date).getUTCFullYear();
-        const valueC = r.value / 10; // NOAA uses tenths of °C
+        const yr = new Date(r.date).getUTCFullYear();
+        const valueC = r.value / 10; // NOAA uses tenths of °C for TMIN/TMAX
 
-        if (r.datatype === 'TMIN') tminData.push({ year, value: valueC });
-        if (r.datatype === 'TMAX') tmaxData.push({ year, value: valueC });
+        if (r.datatype === 'TMIN') tminData.push({ year: yr, value: valueC });
+        if (r.datatype === 'TMAX') tmaxData.push({ year: yr, value: valueC });
       });
     } catch (err) {
       console.error(`Error fetching for ${date}:`, err.message);
@@ -56,6 +60,10 @@ app.get('/api/station', async (req, res) => {
   const result = { tmin: tminData, tmax: tmaxData };
   cache[cacheKey] = result; // Cache it
   res.json(result);
+});
+
+app.get('/', (req, res) => {
+  res.send('NOAA backend is running.');
 });
 
 app.listen(PORT, () => {
