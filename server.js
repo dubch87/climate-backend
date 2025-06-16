@@ -31,7 +31,7 @@ app.get('/api/station', async (req, res) => {
 
   for (let year = startYear; year <= endYear; year++) {
     const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/data?datasetid=GHCND&stationid=${id}&startdate=${date}&enddate=${date}&datatypeid=TMIN,TMAX&limit=1000&units=metric`;
+    const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/data?datasetid=GHCND&stationid=${id}&startdate=${date}&enddate=${date}&datatypeid=TMIN,TMAX&limit=1000&`;
 
     try {
       const response = await fetch(url, {
