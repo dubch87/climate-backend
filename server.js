@@ -7,7 +7,10 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const NOAA_TOKEN = process.env.NOAA_TOKEN;
 
-const cache = {}; // Simple in-memory cache
+const cache = {}; // In-memory cache to avoid re-querying
+
+// Delay helper to throttle API requests
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 app.get('/api/station', async (req, res) => {
   const { id, month, day } = req.query;
@@ -18,7 +21,6 @@ app.get('/api/station', async (req, res) => {
 
   const cacheKey = `${id}_${month}_${day}`;
   if (cache[cacheKey]) {
-    console.log(`Cache hit: ${cacheKey}`);
     return res.json(cache[cacheKey]);
   }
 
@@ -29,7 +31,7 @@ app.get('/api/station', async (req, res) => {
 
   for (let year = startYear; year <= endYear; year++) {
     const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/data?datasetid=GHCND&stationid=${id}&startdate=${date}&enddate=${date}&datatypeid=TMIN,TMAX&limit=1000`;
+    const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/data?datasetid=GHCND&stationid=${id}&startdate=${date}&enddate=${date}&datatypeid=TMIN,TMAX&limit=1000&units=metric`;
 
     try {
       const response = await fetch(url, {
@@ -37,37 +39,43 @@ app.get('/api/station', async (req, res) => {
       });
 
       if (!response.ok) {
-        console.error(`NOAA API error for ${date}: ${response.status} ${response.statusText}`);
-        continue;
+        continue; // skip if failed
       }
 
       const data = await response.json();
-
       if (!data.results) continue;
 
+      let tmin = null;
+      let tmax = null;
+
       data.results.forEach(r => {
-        const yr = new Date(r.date).getUTCFullYear();
         const valueC = r.value / 10;
         const valueF = (valueC * 9/5) + 32;
 
-
-        if (r.datatype === 'TMIN') tminData.push({ year: yr, value: valueF });
-        if (r.datatype === 'TMAX') tmaxData.push({ year: yr, value: valueF });
+        if (r.datatype === 'TMIN') tmin = valueF;
+        if (r.datatype === 'TMAX') tmax = valueF;
       });
+
+      if (tmin !== null) tminData.push({ year, value: tmin });
+      if (tmax !== null) tmaxData.push({ year, value: tmax });
+
     } catch (err) {
-      console.error(`Error fetching for ${date}:`, err.message);
+      // silently skip
     }
+
+    await delay(250); // wait 250ms between requests to avoid hitting API limits
   }
 
   const result = { tmin: tminData, tmax: tmaxData };
-  cache[cacheKey] = result; // Cache it
+  cache[cacheKey] = result;
   res.json(result);
 });
 
+// Optional root route
 app.get('/', (req, res) => {
   res.send('NOAA backend is running.');
 });
 
 app.listen(PORT, () => {
-  console.log(`NOAA backend running on port ${PORT}`);
+  // server started
 });
