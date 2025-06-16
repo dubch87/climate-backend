@@ -47,10 +47,12 @@ app.get('/api/station', async (req, res) => {
 
       data.results.forEach(r => {
         const yr = new Date(r.date).getUTCFullYear();
-        const valueC = r.value / 10; // NOAA uses tenths of °C for TMIN/TMAX
+        const valueC = r.value / 10;
+        const valueF = (valueC * 9/5) + 32;
 
-        if (r.datatype === 'TMIN') tminData.push({ year: yr, value: valueC });
-        if (r.datatype === 'TMAX') tmaxData.push({ year: yr, value: valueC });
+
+        if (r.datatype === 'TMIN') tminData.push({ year: yr, value: valueF });
+        if (r.datatype === 'TMAX') tmaxData.push({ year: yr, value: valueF });
       });
     } catch (err) {
       console.error(`Error fetching for ${date}:`, err.message);
