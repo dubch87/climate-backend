@@ -1,6 +1,8 @@
 const express = require('express');
 const fetch = require('node-fetch');
 require('dotenv').config();
+const express = require('express');
+const fetch = require('node-fetch');  // <-- This is essential
 
 const app = express();
 const PORT = process.env.PORT || 10000;
