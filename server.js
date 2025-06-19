@@ -14,64 +14,54 @@ const cache = {}; // In-memory cache to avoid re-querying
 // Delay helper to throttle API requests
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-app.get('/api/station', async (req, res) => {
-  const { id, month, day } = req.query;
+app.get('/api/stations', async (req, res) => {
+  try {
+    const allStations = [];
+    let offset = 0;
+    const limit = 1000;
+    let totalCount = Infinity;
 
-  if (!id || !month || !day) {
-    return res.status(400).json({ error: 'Missing station id, month, or day.' });
-  }
-
-  const cacheKey = `${id}_${month}_${day}`;
-  if (cache[cacheKey]) {
-    return res.json(cache[cacheKey]);
-  }
-
-  const startYear = 1991;
-  const endYear = 2020;
-  const tminData = [];
-  const tmaxData = [];
-
-  for (let year = startYear; year <= endYear; year++) {
-    const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/data?datasetid=GHCND&stationid=${id}&startdate=${date}&enddate=${date}&datatypeid=TMIN,TMAX&limit=1000&`;
-
-    try {
+    while (offset < totalCount) {
+      const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/stations?datasetid=GHCND&limit=${limit}&offset=${offset}`;
       const response = await fetch(url, {
         headers: { token: NOAA_TOKEN },
       });
 
       if (!response.ok) {
-        continue; // skip if failed
+        console.error(`NOAA error at offset ${offset}: ${response.status}`);
+        break;
       }
 
       const data = await response.json();
-      if (!data.results) continue;
+      if (!data.results) break;
 
-      let tmin = null;
-      let tmax = null;
+      if (totalCount === Infinity && data.metadata?.resultset?.count) {
+        totalCount = data.metadata.resultset.count;
+      }
 
-      data.results.forEach(r => {
-        const valueC = r.value / 10;
-        const valueF = (valueC * 9/5) + 32;
+      const filtered = data.results
+        .filter(s => s.latitude && s.longitude)
+        .map(s => ({
+          id: s.id,
+          name: s.name,
+          lat: s.latitude,
+          lon: s.longitude,
+        }));
 
-        if (r.datatype === 'TMIN') tmin = valueF;
-        if (r.datatype === 'TMAX') tmax = valueF;
-      });
+      allStations.push(...filtered);
+      offset += limit;
 
-      if (tmin !== null) tminData.push({ year, value: tmin });
-      if (tmax !== null) tmaxData.push({ year, value: tmax });
-
-    } catch (err) {
-      // silently skip
+      // Optional throttle to avoid rate limiting
+      await delay(300);
     }
 
-    await delay(250); // wait 250ms between requests to avoid hitting API limits
+    res.json(allStations);
+  } catch (error) {
+    console.error('Error fetching all stations:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-
-  const result = { tmin: tminData, tmax: tmaxData };
-  cache[cacheKey] = result;
-  res.json(result);
 });
+
 
 // Optional root route
 app.get('/', (req, res) => {
