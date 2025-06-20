@@ -65,13 +65,18 @@ app.get('/api/stations', async (req, res) => {
       }
 
       const filtered = data.results
-        .filter(s => s.latitude && s.longitude)
+        .filter(s =>
+          s.latitude &&
+          s.longitude &&
+          (s.id.startsWith('GHCND:USC') || s.id.startsWith('GHCND:USW'))
+        )
         .map(s => ({
           id: s.id,
           name: s.name,
           lat: s.latitude,
           lon: s.longitude,
         }));
+
 
       allStations.push(...filtered);
       offset += limit;
