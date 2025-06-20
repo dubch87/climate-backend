@@ -40,8 +40,17 @@ app.get('/api/stations', async (req, res) => {
         totalCount = data.metadata.resultset.count;
       }
 
+      //const filtered = data.results
+      //  .filter(s => s.latitude && s.longitude)
+      //  .map(s => ({
+      //    id: s.id,
+      //    name: s.name,
+      //    lat: s.latitude,
+      //    lon: s.longitude,
+      //  }));
+
       const filtered = data.results
-        .filter(s => s.latitude && s.longitude)
+        .filter(s => s.latitude && s.longitude && s.state === 'NC')
         .map(s => ({
           id: s.id,
           name: s.name,
