@@ -72,32 +72,52 @@ function aggregateByYear(data) {
   return result;
 }
 
-app.get('/api/station', async (req, res) => {
-  const { id } = req.query;
-
-  if (!id) return res.status(400).json({ error: 'Missing station id' });
-
-  if (cache[id]) {
-    console.log(`Cache hit for ${id}`);
-    return res.json(cache[id]);
-  }
-
+app.get('/api/stations', async (req, res) => {
   try {
-    const [tminRaw, tmaxRaw] = await Promise.all([
-      fetchData(id, 'TMIN'),
-      fetchData(id, 'TMAX'),
-    ]);
+    const allStations = [];
+    let offset = 0;
+    const limit = 1000;
+    let totalCount = Infinity;
 
-    const tmin = aggregateByYear(tminRaw);
-    const tmax = aggregateByYear(tmaxRaw);
+    while (offset < totalCount) {
+      const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/stations?datasetid=GHCND&limit=${limit}&offset=${offset}&locationid=FIPS:37`; // FIPS:37 = North Carolina
 
-    const response = { tmin, tmax };
-    cache[id] = response; // cache for subsequent calls
+      const response = await fetch(url, {
+        headers: { token: NOAA_TOKEN },
+      });
 
-    res.json(response);
+      if (!response.ok) {
+        console.error(`NOAA error at offset ${offset}: ${response.status}`);
+        break;
+      }
+
+      const data = await response.json();
+      if (!data.results) break;
+
+      if (totalCount === Infinity && data.metadata?.resultset?.count) {
+        totalCount = data.metadata.resultset.count;
+      }
+
+      const filtered = data.results
+        .filter(s => s.latitude && s.longitude)
+        .map(s => ({
+          id: s.id,
+          name: s.name,
+          lat: s.latitude,
+          lon: s.longitude,
+        }));
+
+      allStations.push(...filtered);
+      offset += limit;
+
+      // Optional delay to reduce rate limit risk
+      await delay(300);
+    }
+
+    res.json(allStations);
   } catch (error) {
-    console.error('Error fetching station data:', error);
-    res.status(500).json({ error: 'Failed to fetch station data' });
+    console.error('Error fetching stations:', error);
+    res.status(500).json({ error: 'Failed to fetch stations' });
   }
 });
 
