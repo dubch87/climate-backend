@@ -119,12 +119,12 @@ app.get('/api/station', async (req, res) => {
 
     const tmin = filterByDate(tminRaw).map(d => ({
       year: new Date(d.date).getUTCFullYear(),
-      value: toFahrenheit(d.value),
+      value: toFahrenheit(d),
     }));
 
     const tmax = filterByDate(tmaxRaw).map(d => ({
       year: new Date(d.date).getUTCFullYear(),
-      value: toFahrenheit(d.value),
+      value: toFahrenheit(d),
     }));
 
     const result = { tmin, tmax };
