@@ -119,12 +119,12 @@ app.get('/api/station', async (req, res) => {
 
     const tmin = filterByDate(tminRaw).map(d => ({
       year: new Date(d.date).getUTCFullYear(),
-      value: toFahrenheit(d),
+      value: toFahrenheit(d.value),
     }));
 
     const tmax = filterByDate(tmaxRaw).map(d => ({
       year: new Date(d.date).getUTCFullYear(),
-      value: toFahrenheit(d),
+      value: toFahrenheit(d.value),
     }));
 
     const result = { tmin, tmax };
@@ -136,6 +136,7 @@ app.get('/api/station', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch station data' });
   }
 });
+
 
 app.get('/', (req, res) => {
   res.send('NOAA backend is running.');
