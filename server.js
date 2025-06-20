@@ -23,7 +23,8 @@ app.get('/api/stations', async (req, res) => {
     let totalCount = Infinity;
 
     while (offset < totalCount) {
-      const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/stations?datasetid=GHCND&limit=${limit}&offset=${offset}`;
+      //const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/stations?datasetid=GHCND&limit=${limit}&offset=${offset}`;
+      const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/stations?datasetid=GHCND&locationid=FIPS:37&limit=${limit}&offset=${offset}`;
       const response = await fetch(url, {
         headers: { token: NOAA_TOKEN },
       });
@@ -50,14 +51,13 @@ app.get('/api/stations', async (req, res) => {
       //  }));
 
       const filtered = data.results
-        .filter(s => s.latitude && s.longitude && s.id.startsWith('GHCND:USC'))
+        .filter(s => s.latitude && s.longitude)
         .map(s => ({
           id: s.id,
           name: s.name,
           lat: s.latitude,
           lon: s.longitude,
         }));
-
 
       allStations.push(...filtered);
       offset += limit;
