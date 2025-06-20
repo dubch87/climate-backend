@@ -72,54 +72,49 @@ function aggregateByYear(data) {
   return result;
 }
 
-app.get('/api/stations', async (req, res) => {
+app.get('/api/station', async (req, res) => {
+  const { id, month, day } = req.query;
+
+  if (!id || !month || !day) {
+    return res.status(400).json({ error: 'Missing station id, month, or day' });
+  }
+
+  const cacheKey = `${id}-${month}-${day}`;
+  if (cache[cacheKey]) {
+    return res.json(cache[cacheKey]);
+  }
+
   try {
-    const allStations = [];
-    let offset = 0;
-    const limit = 1000;
-    let totalCount = Infinity;
+    const [tminRaw, tmaxRaw] = await Promise.all([
+      fetchData(id, 'TMIN'),
+      fetchData(id, 'TMAX'),
+    ]);
 
-    while (offset < totalCount) {
-      const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/stations?datasetid=GHCND&limit=${limit}&offset=${offset}&locationid=FIPS:37`; // FIPS:37 = North Carolina
+    // Filter for the selected day across all years
+    const filterByDate = (data) => data.filter(d => {
+      const date = new Date(d.date);
+      return date.getUTCMonth() + 1 === Number(month) && date.getUTCDate() === Number(day);
+    });
 
-      const response = await fetch(url, {
-        headers: { token: NOAA_TOKEN },
-      });
+    const convertToFahrenheit = (data) =>
+      data.map(d => ({
+        year: new Date(d.date).getFullYear(),
+        value: (d.value / 10) * 9 / 5 + 32, // tenths of C -> F
+      }));
 
-      if (!response.ok) {
-        console.error(`NOAA error at offset ${offset}: ${response.status}`);
-        break;
-      }
+    const tmin = convertToFahrenheit(filterByDate(tminRaw));
+    const tmax = convertToFahrenheit(filterByDate(tmaxRaw));
 
-      const data = await response.json();
-      if (!data.results) break;
+    const result = { tmin, tmax };
+    cache[cacheKey] = result;
 
-      if (totalCount === Infinity && data.metadata?.resultset?.count) {
-        totalCount = data.metadata.resultset.count;
-      }
-
-      const filtered = data.results
-        .filter(s => s.latitude && s.longitude)
-        .map(s => ({
-          id: s.id,
-          name: s.name,
-          lat: s.latitude,
-          lon: s.longitude,
-        }));
-
-      allStations.push(...filtered);
-      offset += limit;
-
-      // Optional delay to reduce rate limit risk
-      await delay(300);
-    }
-
-    res.json(allStations);
+    res.json(result);
   } catch (error) {
-    console.error('Error fetching stations:', error);
-    res.status(500).json({ error: 'Failed to fetch stations' });
+    console.error('Error fetching station data:', error);
+    res.status(500).json({ error: 'Failed to fetch station data' });
   }
 });
+
 
 // Root route
 app.get('/', (req, res) => {
