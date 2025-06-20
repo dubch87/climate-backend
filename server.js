@@ -1,7 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-import fetch from 'node-fetch';  // Make sure to install node-fetch if needed
+import fetch from 'node-fetch';
 
 dotenv.config();
 
@@ -11,118 +11,101 @@ app.use(cors());
 const PORT = process.env.PORT || 10000;
 const NOAA_TOKEN = process.env.NOAA_TOKEN;
 
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const cache = {}; // simple in-memory cache by stationId
 
-function cToF(celsius) {
-  return (celsius * 9/5) + 32;
-}
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// Endpoint to get all NC stations
-app.get('/api/stations', async (req, res) => {
-  try {
-    const allStations = [];
-    let offset = 0;
-    const limit = 1000;
-    let totalCount = Infinity;
+async function fetchData(stationId, datatypeId) {
+  const allResults = [];
+  const limit = 1000;
+  let offset = 1;
+  let totalCount = Infinity;
 
-    while (offset < totalCount) {
-      const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/stations?datasetid=GHCND&locationid=FIPS:37&limit=${limit}&offset=${offset}`;
-      const response = await fetch(url, {
-        headers: { token: NOAA_TOKEN },
-      });
+  while (offset < totalCount) {
+    const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/data?datasetid=GHCND&datatypeid=${datatypeId}&stationid=${stationId}&startdate=1991-01-01&enddate=2020-12-31&units=standard&limit=${limit}&offset=${offset}`;
 
-      if (!response.ok) {
-        console.error(`NOAA error at offset ${offset}: ${response.status}`);
-        break;
-      }
-
-      const data = await response.json();
-
-      if (!data.results) break;
-
-      if (totalCount === Infinity && data.metadata?.resultset?.count) {
-        totalCount = data.metadata.resultset.count;
-        console.log('Total stations in NC:', totalCount);
-      }
-
-      console.log(`Fetched ${data.results.length} stations at offset ${offset}`);
-
-      const filtered = data.results
-        .filter(s => s.latitude && s.longitude)
-        .map(s => ({
-          id: s.id,
-          name: s.name,
-          lat: s.latitude,
-          lon: s.longitude,
-        }));
-
-      allStations.push(...filtered);
-      offset += limit;
-
-      await delay(300);
-    }
-
-    res.json(allStations);
-  } catch (error) {
-    console.error('Error fetching all stations:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Endpoint to get Tmin and Tmax data for a station on given month/day for current year
-app.get('/api/station', async (req, res) => {
-  const { id, month, day } = req.query;
-
-  if (!id || !month || !day) {
-    return res.status(400).json({ error: 'Missing id, month or day parameter' });
-  }
-
-  try {
-    const year = new Date().getFullYear();
-    const monthPadded = month.toString().padStart(2, '0');
-    const dayPadded = day.toString().padStart(2, '0');
-    const startDate = `${year}-${monthPadded}-${dayPadded}`;
-    const endDate = startDate;
-
-    const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/data?datasetid=GHCND&stationid=${id}&startdate=${startDate}&enddate=${endDate}&units=metric&limit=1000`;
-
-    const response = await fetch(url, {
+    const res = await fetch(url, {
       headers: { token: NOAA_TOKEN },
     });
 
-    if (!response.ok) {
-      console.error(`NOAA API error fetching data for ${id}: ${response.status}`);
-      return res.status(404).json({ error: 'Data not found' });
+    if (!res.ok) {
+      throw new Error(`NOAA API error for ${datatypeId} at offset ${offset}: ${res.status}`);
     }
 
-    const data = await response.json();
+    const data = await res.json();
 
-    const tmin = [];
-    const tmax = [];
+    if (!data.results) break;
 
-    if (data.results) {
-      data.results.forEach(record => {
-        if (record.datatype === 'TMIN') {
-          tmin.push({ value: cToF(record.value / 10), year });
-        }
-        if (record.datatype === 'TMAX') {
-          tmax.push({ value: cToF(record.value / 10), year });
-        }
-      });
+    allResults.push(...data.results);
+
+    if (totalCount === Infinity && data.metadata?.resultset?.count) {
+      totalCount = data.metadata.resultset.count;
     }
 
-    res.json({ tmin, tmax });
+    offset += limit;
+
+    await delay(300);
+  }
+
+  return allResults;
+}
+
+function aggregateByYear(data) {
+  // Aggregate values by year, convert to Fahrenheit
+  const grouped = {};
+
+  data.forEach(d => {
+    const year = new Date(d.date).getFullYear();
+    const celsius = d.value / 10;
+    const fahrenheit = (celsius * 9) / 5 + 32;
+
+    if (!grouped[year]) grouped[year] = [];
+    grouped[year].push({ year, value: fahrenheit });
+  });
+
+  // Flatten grouped data for plotting
+  const result = [];
+  for (const year in grouped) {
+    result.push(...grouped[year]);
+  }
+
+  return result;
+}
+
+app.get('/api/station', async (req, res) => {
+  const { id } = req.query;
+
+  if (!id) return res.status(400).json({ error: 'Missing station id' });
+
+  if (cache[id]) {
+    console.log(`Cache hit for ${id}`);
+    return res.json(cache[id]);
+  }
+
+  try {
+    const [tminRaw, tmaxRaw] = await Promise.all([
+      fetchData(id, 'TMIN'),
+      fetchData(id, 'TMAX'),
+    ]);
+
+    const tmin = aggregateByYear(tminRaw);
+    const tmax = aggregateByYear(tmaxRaw);
+
+    const response = { tmin, tmax };
+    cache[id] = response; // cache for subsequent calls
+
+    res.json(response);
   } catch (error) {
     console.error('Error fetching station data:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Failed to fetch station data' });
   }
 });
 
-// Root endpoint for sanity check
+// Root route
 app.get('/', (req, res) => {
   res.send('NOAA backend is running.');
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server started on port ${PORT}`);
 });
