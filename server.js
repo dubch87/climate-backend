@@ -72,48 +72,55 @@ function aggregateByYear(data) {
   return result;
 }
 
-app.get('/api/station', async (req, res) => {
-  const { id, month, day } = req.query;
-
-  if (!id || !month || !day) {
-    return res.status(400).json({ error: 'Missing station id, month, or day' });
-  }
-
-  const cacheKey = `${id}-${month}-${day}`;
-  if (cache[cacheKey]) {
-    return res.json(cache[cacheKey]);
-  }
-
+app.get('/api/stations', async (req, res) => {
   try {
-    const [tminRaw, tmaxRaw] = await Promise.all([
-      fetchData(id, 'TMIN'),
-      fetchData(id, 'TMAX'),
-    ]);
+    const allStations = [];
+    let offset = 0;
+    const limit = 1000;
+    let totalCount = Infinity;
 
-    // Filter for the selected day across all years
-    const filterByDate = (data) => data.filter(d => {
-      const date = new Date(d.date);
-      return date.getUTCMonth() + 1 === Number(month) && date.getUTCDate() === Number(day);
-    });
+    while (offset < totalCount) {
+      const url = `https://www.ncdc.noaa.gov/cdo-web/api/v2/stations?datasetid=GHCND&locationid=FIPS:37&limit=${limit}&offset=${offset}`; // FIPS:37 = North Carolina
 
-    const convertToFahrenheit = (data) =>
-      data.map(d => ({
-        year: new Date(d.date).getFullYear(),
-        value: (d.value / 10) * 9 / 5 + 32, // tenths of C -> F
-      }));
+      const response = await fetch(url, {
+        headers: { token: NOAA_TOKEN },
+      });
 
-    const tmin = convertToFahrenheit(filterByDate(tminRaw));
-    const tmax = convertToFahrenheit(filterByDate(tmaxRaw));
+      if (!response.ok) {
+        console.error(`NOAA error at offset ${offset}: ${response.status}`);
+        break;
+      }
 
-    const result = { tmin, tmax };
-    cache[cacheKey] = result;
+      const data = await response.json();
+      if (!data.results) break;
 
-    res.json(result);
+      if (totalCount === Infinity && data.metadata?.resultset?.count) {
+        totalCount = data.metadata.resultset.count;
+      }
+
+      const filtered = data.results
+        .filter(s => s.latitude && s.longitude)
+        .map(s => ({
+          id: s.id,
+          name: s.name,
+          lat: s.latitude,
+          lon: s.longitude,
+        }));
+
+      allStations.push(...filtered);
+      offset += limit;
+
+      // Avoid NOAA rate limits
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    res.json(allStations);
   } catch (error) {
-    console.error('Error fetching station data:', error);
-    res.status(500).json({ error: 'Failed to fetch station data' });
+    console.error('Error fetching stations:', error);
+    res.status(500).json({ error: 'Failed to fetch stations' });
   }
 });
+
 
 
 // Root route
